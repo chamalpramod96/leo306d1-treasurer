@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>District Treasurer · Leo District 306 D1</title>
+  <meta name="description" content="Treasury portal of the District Treasurer, Leo District 306 D1 — club notes, treasurer report submissions and district payment tracking.">
+  <meta name="theme-color" content="#42060B">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Leo 306 D1">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/icons/app-icon-apple-180.png">
+  <link rel="preload" as="image" href="assets/logo.webp">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css?v=1.8">
+</head>
+<body>
+  <!-- ===== Loading screen ===== -->
+  <div id="loader" class="loader" role="status" aria-live="polite" aria-label="Loading District Treasurer portal">
+    <div class="loader-rays" aria-hidden="true"></div>
+    <div class="loader-emblem">
+      <img class="loader-logo" src="assets/logo.webp" alt="Leo District 306 D1 emblem" width="640" height="556">
+      <span class="loader-shine" aria-hidden="true"></span>
+    </div>
+    <div class="loader-text">
+      <div class="loader-title">Leo District 306 D1</div>
+      <div class="loader-sub">Office of the District Treasurer</div>
+    </div>
+    <div class="loader-bar" aria-hidden="true"><span></span></div>
+    <div class="loader-motto"><span>★</span> Values Lead Purpose <span>★</span></div>
+  </div>
+
+  <!-- ===== Header ===== -->
+  <header class="site-header">
+    <div class="hdr-inner">
+      <a class="brand" href="#/dashboard" aria-label="Leo District 306 D1 — Treasurer home">
+        <img class="brand-logo" src="assets/logo-sm.webp" alt="" width="200" height="174">
+        <div class="brand-text">
+          <div class="brand-kicker">Office of the District Treasurer</div>
+          <div class="brand-title" id="brandTitle">Leo District 306 D1</div>
+          <div class="brand-motto"><span aria-hidden="true">★</span> Values Lead Purpose <span aria-hidden="true">★</span></div>
+        </div>
+      </a>
+      <div class="hdr-meta">
+        <span class="year-pill" id="yearPill">Leo Year 2026/2027</span>
+        <span class="hdr-treasurer" id="hdrTreasurer"></span>
+      </div>
+      <button type="button" class="hdr-avatar" data-action="my-account" aria-label="My account"><span id="hdrAvatar">L</span></button>
+    </div>
+    <nav class="main-nav" aria-label="Main">
+      <div class="nav-inner" id="mainNav">
+        <a href="#/dashboard" data-route="dashboard"><span class="nav-ico" aria-hidden="true">◆</span>Dashboard</a>
+        <a href="#/clubs" data-route="clubs"><span class="nav-ico" aria-hidden="true">♜</span>Clubs &amp; Notes</a>
+        <a href="#/reports" data-route="reports"><span class="nav-ico" aria-hidden="true">✓</span>Treasurer Reports</a>
+        <a href="#/payments" data-route="payments"><span class="nav-ico" aria-hidden="true">₨</span>Payments</a>
+        <a href="#/settings" data-route="settings"><span class="nav-ico" aria-hidden="true">⚙</span>Settings &amp; Backup</a>
+        <a href="#/users" data-route="users" data-perm="users"><span class="nav-ico" aria-hidden="true">⚿</span>Users &amp; Access</a>
+        <span class="nav-spacer"></span>
+        <button type="button" class="nav-user" data-action="my-account" id="navUser" title="My account">
+          <span class="nav-avatar" id="navAvatar" aria-hidden="true">L</span>
+          <span class="nav-user-text"><span id="navUserName">Officer</span><small id="navUserRole">Role</small></span>
+        </button>
+        <button type="button" class="nav-logout" data-action="logout" title="Sign out" aria-label="Sign out">⎋ <span>Sign out</span></button>
+      </div>
+    </nav>
+  </header>
+
+  <div id="demoBanner" class="demo-banner" hidden>
+    <span>Sample data is loaded so you can explore. Clear it in <a href="#/settings">Settings &amp; Backup</a> before entering your real clubs.</span>
+  </div>
+
+  <main id="app" class="app" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <div class="footer-rule" aria-hidden="true"><span>★</span></div>
+    <p><strong id="footDistrict">Leo District 306 D1</strong> · District Treasurer Portal · <span id="footYear">2026/2027</span></p>
+    <p class="footer-small">Data is saved in this browser only. Export a backup from Settings &amp; Backup regularly.</p>
+  </footer>
+
+  <!-- ===== Phone: floating action + bottom tab bar ===== -->
+  <button type="button" class="fab" id="fab" data-action="new-payment" data-perm="payments" aria-label="Record a payment" hidden>＋</button>
+  <nav class="tabbar" id="tabbar" aria-label="App">
+    <a href="#/dashboard" data-route="dashboard"><span class="tb-ico" aria-hidden="true">◆</span><span>Home</span></a>
+    <a href="#/clubs" data-route="clubs"><span class="tb-ico" aria-hidden="true">♜</span><span>Clubs</span></a>
+    <a href="#/reports" data-route="reports"><span class="tb-ico" aria-hidden="true">✓</span><span>Reports</span></a>
+    <a href="#/payments" data-route="payments"><span class="tb-ico" aria-hidden="true">₨</span><span>Payments</span></a>
+    <button type="button" data-action="more-menu" data-route="more"><span class="tb-ico" aria-hidden="true">☰</span><span>More</span></button>
+  </nav>
+
+  <!-- ===== Sign-in / setup screen (shown while signed out) ===== -->
+  <div id="authScreen" class="auth-screen" hidden></div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="js/core.js?v=1.8"></script>
+  <script src="js/ui.js?v=1.8"></script>
+  <script src="js/auth.js?v=1.8"></script>
+  <script src="js/views-auth.js?v=1.8"></script>
+  <script src="js/views-dashboard.js?v=1.8"></script>
+  <script src="js/views-clubs.js?v=1.8"></script>
+  <script src="js/views-club.js?v=1.8"></script>
+  <script src="js/files.js?v=1.8"></script>
+  <script src="js/receipts.js?v=1.8"></script>
+  <script src="js/views-reports.js?v=1.8"></script>
+  <script src="js/views-payments.js?v=1.8"></script>
+  <script src="js/views-settings.js?v=1.8"></script>
+  <script src="js/views-users.js?v=1.8"></script>
+  <script src="js/pwa.js?v=1.8"></script>
+  <script src="js/main.js?v=1.8"></script>
+</body>
+</html>

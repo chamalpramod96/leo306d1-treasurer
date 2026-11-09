@@ -20,6 +20,7 @@
     'new-notice': 'notes', 'send-reminder': 'notes',
     'issue-receipt': 'payments', 'issue-missing-receipts': 'payments',
     'export-receipts-xlsx': 'export', 'export-receipts-pdf': 'export',
+    'cloud-upload': 'restore',
   };
   /** Pages that belong under another menu item (a club profile lives under Clubs). */
   const NAV_PARENT = { club: 'clubs' };
@@ -55,6 +56,10 @@
     document.getElementById('navAvatar').textContent = u ? initials(u.name) : '';
     document.getElementById('hdrAvatar').textContent = u ? initials(u.name) : '';
     document.getElementById('demoBanner').hidden = !st.demo || !u;
+    document.getElementById('footStore').textContent = App.cloud.enabled
+      ? 'Data is shared online with the district officers through Firebase. You can still download a backup from Settings & Backup.'
+      : 'Data is saved in this browser only. Export a backup from Settings & Backup regularly.';
+    if (App.cloud.enabled) App.cloud.paint();
     App.ui.applyPerms(document.getElementById('mainNav'));
     // phone: bottom tab bar + floating "record payment" button
     const { name, sub } = u ? parseRoute() : { name: '', sub: '' };
@@ -151,9 +156,9 @@
     fn(el, e);
   });
 
-  // Data changed in another tab → stay in sync
+  // Data changed in another tab → stay in sync (the shared database syncs tabs itself)
   window.addEventListener('storage', (e) => {
-    if (e.key === App.STORAGE_KEY && e.newValue) {
+    if (!App.CLOUD && e.key === App.STORAGE_KEY && e.newValue) {
       try { App.replaceState(JSON.parse(e.newValue), { save: false }); } catch (err) { /* ignore */ }
     }
   });

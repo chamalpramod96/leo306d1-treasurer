@@ -6,6 +6,9 @@
   'use strict';
   const App = (window.App = window.App || {});
   const STORAGE_KEY = 'leo306d1.treasury.v1';
+  /** js/firebase-config.js filled in → data is shared online (js/cloud.js) instead of kept in this browser. */
+  const FB = window.LEO_FIREBASE || {};
+  const CLOUD = !!(FB.apiKey && FB.projectId);
 
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const METHODS = ['Bank transfer', 'Cash', 'Cheque', 'Online / card', 'Other'];
@@ -77,9 +80,19 @@
     }
   }
 
-  let state = load();
+  // Shared mode starts empty: the data arrives from Firestore after sign-in
+  let state = CLOUD ? defaultState() : load();
+
+  /** Data saved in this browser before Firebase was connected (offered for upload), or null. */
+  function savedOnDevice() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? migrate(JSON.parse(raw)) : null;
+    } catch (e) { return null; }
+  }
 
   function persist() {
+    if (CLOUD) return !!(App.cloud && App.cloud.push && App.cloud.push(state));
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       return true;
@@ -387,11 +400,12 @@
       collectedBy: p.collectedBy === 'DAT' ? 'DAT' : 'DT', collectorName: p.collectorName || '',
     };
   }
-  /** Issue the next numbered receipt for a payment (call inside commit). */
-  function issueReceipt(s, p, by = {}, issuedAt = Date.now()) {
+  /** Issue the next numbered receipt for a payment (call inside commit).
+      `seq` is a number reserved with reserveReceiptSeq(); without it the next local number is used. */
+  function issueReceipt(s, p, by = {}, issuedAt = Date.now(), seq = 0) {
     const year = leoYearOf(p.date);
-    const seq = lastReceiptSeq(s, year) + 1;
-    s.receiptSeq[year] = seq;
+    seq = seq > 0 ? seq : lastReceiptSeq(s, year) + 1;
+    s.receiptSeq[year] = Math.max(Number(s.receiptSeq[year]) || 0, seq);
     const r = {
       id: uid('rcpt'), no: receiptNo(s.settings.receiptPrefix, year, seq), seq, year, status: 'issued',
       issuedAt, issuedById: by.byId || '', issuedByName: by.byName || '', ...receiptFields(s, p),
@@ -425,6 +439,15 @@
         delete r.cancelledAt; delete r.cancelledByName; delete r.cancelReason;
       }
     });
+  }
+  /** Numbers for `count` new receipts in a Leo year, before they are issued.
+      Shared database: reserved on the server, so two officers' devices never get the same number.
+      Resolves to the first number, null (this device only: number locally, inside commit),
+      or false (shared, but the server can't be reached — save the payment without a receipt). */
+  async function reserveReceiptSeq(year, count = 1) {
+    if (!CLOUD) return null;
+    if (!App.cloud || !App.cloud.reserveReceipts) return false;
+    return App.cloud.reserveReceipts(year, count, lastReceiptSeq(state, year));
   }
   const receiptById = (id) => state.receipts.find((r) => r.id === id);
   const collectorLabel = (r) => [r.collectorName, RECEIPT_BY[r.collectedBy] ? `${RECEIPT_BY[r.collectedBy]} (${r.collectedBy})` : ''].filter(Boolean).join(' — ');
@@ -551,14 +574,14 @@
   Object.defineProperty(App, 'state', { get: () => state, enumerable: true });
 
   Object.assign(App, {
-    STORAGE_KEY, MONTHS, METHODS, NOTE_TAGS, NOTICE_AUDIENCE, isTask,
-    commit, replaceState, persist, defaultState, demoState, migrate,
+    STORAGE_KEY, CLOUD, MONTHS, METHODS, NOTE_TAGS, NOTICE_AUDIENCE, isTask,
+    commit, replaceState, persist, defaultState, demoState, migrate, savedOnDevice,
     uid, pad, toISO, todayISO, parseISO, fmtDate, fmtDateTime, fmtTime, nowTime, relTime, money, moneyShort, pct,
     leoYearLabel, leoMonths, monthLabel, reportDueDate, monthEnded, currentReportMonth, getReport, reportStatus,
     typeLabel, clubById, clubsSorted, notesFor, noticesFor, noticeAudienceLabel, dueReminders, clubOutstanding,
     headById, headApplies, expectedAmount, paymentsFor, paidAmount, isExempt, paymentStatus, headTotals, clubPaymentSummary, overallTotals,
     toCSV, download,
-    RECEIPT_BY, amountInWords, leoYearOf, receiptNo, lastReceiptSeq, issueReceipt, reviseReceipt, cancelReceipts, reinstateReceipts,
+    RECEIPT_BY, amountInWords, leoYearOf, receiptNo, lastReceiptSeq, issueReceipt, reserveReceiptSeq, reviseReceipt, cancelReceipts, reinstateReceipts,
     receiptById, collectorLabel,
   });
 })();

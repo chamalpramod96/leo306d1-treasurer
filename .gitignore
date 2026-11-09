@@ -5,3 +5,7 @@
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Firebase emulator / CLI logs (local testing)
+*-debug.log
+.firebase/

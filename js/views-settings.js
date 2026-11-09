@@ -13,11 +13,14 @@
     for (let y = 2023; y <= 2032; y++) years.push(y);
     const s = App.state;
     const lastSeq = App.lastReceiptSeq(s, Number(st.startYear));
+    const cloud = App.cloud.enabled;
     return `<section class="view">
       <div class="page-head"><div>
         <div class="eyebrow">Portal configuration</div>
         <h1 class="page-title">Settings &amp; Backup</h1>
-        <p class="lede">All data is stored privately in this browser on this device. Export a backup file regularly and keep it safe.</p>
+        <p class="lede">${cloud
+          ? 'Data is kept in the district’s shared Firebase database, so every officer sees the same records on any device. You can still download a backup file.'
+          : 'All data is stored privately in this browser on this device. Export a backup file regularly and keep it safe.'}</p>
       </div></div>
 
       <div class="settings-grid">
@@ -36,15 +39,20 @@
             <label class="field"><span>Receipt number prefix</span><input name="receiptPrefix" value="${esc(st.receiptPrefix || '')}" maxlength="20" pattern="[A-Za-z0-9\\-]*" placeholder="LD306D1"><small>Letters, numbers and dashes</small></label>
             <label class="field"><span>Next number for ${App.leoYearLabel()}</span><input name="nextSeq" type="number" min="${lastSeq + 1}" step="1" value="${lastSeq + 1}"><small>Next receipt: <b id="rcPreview">${esc(App.receiptNo(st.receiptPrefix, Number(st.startYear), lastSeq + 1))}</b></small></label>
             <label class="field full"><span>Second heading on the receipt</span><input name="receiptSubtitle" value="${esc(st.receiptSubtitle || '')}" maxlength="70" placeholder="Office of the District Treasurer"></label>
-            <p class="hint full" style="margin:0">Numbers start again at 0001 each Leo year and are never reused — a deleted payment leaves its receipt in the register marked cancelled. If paper receipts were already written this year, set the next number to continue after them. Each device numbers its own receipts, so if the DT and DAT issue receipts on different phones, give each phone its own prefix (for example LD306D1-DT and LD306D1-DAT).</p>
+            <p class="hint full" style="margin:0">Numbers start again at 0001 each Leo year and are never reused — a deleted payment leaves its receipt in the register marked cancelled. If paper receipts were already written this year, set the next number to continue after them. ${cloud
+              ? 'Numbers are handed out by the shared database, so receipts issued by the DT and the DAT on different phones never get the same number.'
+              : 'Each device numbers its own receipts, so if the DT and DAT issue receipts on different phones, give each phone its own prefix (for example LD306D1-DT and LD306D1-DAT).'}</p>
             <div class="full">${App.can('settings') ? '<button class="btn btn-primary" type="submit">Save receipt settings</button>' : ''}</div></fieldset>
           </form>
         </div>
 
         <div class="stack">
+          ${cloudCard()}
           <div class="card">
             <div class="card-head"><h2 class="card-title"><span class="ttl-ico">⤓</span>Backup &amp; restore</h2></div>
-            <p class="hint" style="margin-top:0">A backup file holds every club, note, report mark and payment. Restore it on another computer to continue there.</p>
+            <p class="hint" style="margin-top:0">${cloud
+              ? 'A backup file holds every club, note, report mark, payment and receipt. Restoring one replaces the shared data for every officer.'
+              : 'A backup file holds every club, note, report mark and payment. Restore it on another computer to continue there.'}</p>
             <div class="btn-row">
               <button class="btn btn-gold" data-action="export-json" data-perm="restore">⤓ Download backup (.json)</button>
               <label class="btn file-btn" data-perm="restore">⤒ Restore from backup<input type="file" id="importFile" accept="application/json,.json"></label>
@@ -65,7 +73,7 @@
           </div>
 
           <div class="card">
-            <div class="card-head"><h2 class="card-title"><span class="ttl-ico">◇</span>Data on this device</h2></div>
+            <div class="card-head"><h2 class="card-title"><span class="ttl-ico">◇</span>${cloud ? 'Shared data' : 'Data on this device'}</h2></div>
             <dl class="kv" style="margin-bottom:14px">
               <dt>Clubs</dt><dd>${s.clubs.length} (${s.clubs.filter((c) => c.type === 'omega').length} Omega · ${s.clubs.filter((c) => c.type === 'alpha').length} Alpha)</dd>
               <dt>Notes</dt><dd>${s.notes.length}</dd>
@@ -82,6 +90,30 @@
         </div>
       </div>
     </section>`;
+  }
+
+  /** Online database status: Firebase project, sync state, and upload of data saved before it was connected. */
+  function cloudCard() {
+    if (!App.cloud.enabled) {
+      return `<div class="card">
+        <div class="card-head"><h2 class="card-title"><span class="ttl-ico">☁</span>Online database</h2>${App.ui.chip('na', '○', 'Not connected')}</div>
+        <p class="hint" style="margin:0">This portal keeps its data in this browser only. To let every officer work on the same data from their own phone,
+          connect it to a Firebase project: see <b>FIREBASE-SETUP.md</b> in the portal's files.</p>
+      </div>`;
+    }
+    const st = App.cloud.status() || { code: 'busy', label: 'Connecting…' };
+    const chipCode = { ok: 'ok', busy: 'pending', off: 'na', err: 'overdue' }[st.code] || 'pending';
+    const local = App.can('restore') && App.cloud.localHasData();
+    return `<div class="card">
+      <div class="card-head"><h2 class="card-title"><span class="ttl-ico">☁</span>Online database</h2>${App.ui.chip(chipCode, st.code === 'ok' ? '✓' : '•', st.label)}</div>
+      <dl class="kv" style="margin-bottom:12px">
+        <dt>Firebase project</dt><dd>${esc(App.cloud.projectId)}${App.cloud.emulator ? ' <small>(local test emulator)</small>' : ''}</dd>
+        <dt>Signed in as</dt><dd>${esc(App.cloud.email())}</dd>
+      </dl>
+      <p class="hint" style="margin:0">Changes are shared with every officer straight away. Offline, they are kept on this device and upload by themselves when the connection is back.</p>
+      ${local ? `<p class="hint" style="margin:12px 0 6px">This browser still holds data saved before Firebase was connected.</p>
+        <button class="btn btn-sm" data-action="cloud-upload" data-perm="restore">⤒ Upload this browser's data…</button>` : ''}
+    </div>`;
   }
 
   function mount(root) {
@@ -132,7 +164,7 @@
       if (!payload || !Array.isArray(payload.clubs)) { App.ui.toast('That file is not a treasury backup.', 'error'); return; }
       const ok = await App.ui.confirm({
         title: 'Restore this backup?', danger: true, confirmText: 'Replace my data',
-        message: `The backup has <strong>${payload.clubs.length} clubs</strong> and <strong>${(payload.payments || []).length} payments</strong>${data.exportedAt ? `, saved ${esc(App.fmtDateTime(data.exportedAt))}` : ''}. It will <strong>replace</strong> all data currently in this browser.`,
+        message: `The backup has <strong>${payload.clubs.length} clubs</strong> and <strong>${(payload.payments || []).length} payments</strong>${data.exportedAt ? `, saved ${esc(App.fmtDateTime(data.exportedAt))}` : ''}. It will <strong>replace</strong> all data ${App.cloud.enabled ? 'in the shared database, for every officer' : 'currently in this browser'}.`,
       });
       if (!ok) return;
       App.replaceState(payload);
@@ -173,7 +205,7 @@
     },
     'load-demo': async () => {
       if (App.state.clubs.length) {
-        const ok = await App.ui.confirm({ title: 'Load sample data?', danger: true, confirmText: 'Replace with sample data', message: 'Sample data will <strong>replace</strong> the clubs, notes, reports and payments currently saved in this browser. Download a backup first if you need them.' });
+        const ok = await App.ui.confirm({ title: 'Load sample data?', danger: true, confirmText: 'Replace with sample data', message: `Sample data will <strong>replace</strong> the clubs, notes, reports and payments ${App.cloud.enabled ? 'in the shared database, for every officer' : 'currently saved in this browser'}. Download a backup first if you need them.` });
         if (!ok) return;
       }
       App.replaceState(App.demoState());
@@ -181,7 +213,7 @@
       location.hash = '#/dashboard';
     },
     'clear-all': async () => {
-      const ok = await App.ui.confirm({ title: 'Clear all data?', danger: true, confirmText: 'Erase everything', message: 'Every club, note, report mark, payment type and payment saved in this browser will be <strong>permanently erased</strong>. Download a backup first if you may need it.' });
+      const ok = await App.ui.confirm({ title: 'Clear all data?', danger: true, confirmText: 'Erase everything', message: `Every club, note, report mark, payment type and payment ${App.cloud.enabled ? 'in the shared database will be <strong>permanently erased for every officer</strong>' : 'saved in this browser will be <strong>permanently erased</strong>'}. Download a backup first if you may need it.` });
       if (!ok) return;
       const keep = App.state.settings;
       const fresh = App.defaultState();

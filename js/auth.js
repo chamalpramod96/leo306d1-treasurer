@@ -113,7 +113,8 @@
     s.last = now; writeSession(s);
     return u;
   }
-  current = resumeSession();
+  // With the shared database (cloud.js) Firebase owns the sign-in and the session record
+  current = App.CLOUD ? null : resumeSession();
 
   let lastTouch = 0;
   function touch() {

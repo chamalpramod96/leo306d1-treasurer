@@ -314,6 +314,7 @@
 
     const readOnly = !App.can('payments');
     if (readOnly && (!sel.clubId || !sel.headId || editing)) return;
+    let busy = false;   // waiting for a receipt number (outside onMount: the form is redrawn on every data change)
 
     const ctrl = App.ui.open({
       size: 'lg',
@@ -395,8 +396,9 @@
           App.commit((st) => { if (ex.checked) st.exemptions[k] = true; else delete st.exemptions[k]; });
           App.ui.toast(ex.checked ? 'Club exempted from this payment' : 'Exemption removed');
         });
-        f.addEventListener('submit', (e) => {
+        f.addEventListener('submit', async (e) => {
           e.preventDefault();
+          if (busy) return;
           const d = formData(f);
           const amount = Math.round(parseFloat(d.amount) * 100) / 100;
           if (!d.clubId || !d.headId || !(amount > 0)) { App.ui.toast('Choose a club, a payment type and an amount.', 'error'); return; }
@@ -404,20 +406,33 @@
             clubId: d.clubId, headId: d.headId, amount, date: d.date || App.todayISO(), method: d.method, reference: d.reference, note: d.note,
             payer: d.payer, payerPhone: d.payerPhone, onAccountOf: d.onAccountOf, collectedBy: d.collectedBy === 'DAT' ? 'DAT' : 'DT', collectorName: d.collectorName,
           };
-          const wantReceipt = !!(f.issueReceipt && f.issueReceipt.checked);
+          let wantReceipt = !!(f.issueReceipt && f.issueReceipt.checked);
           const by = App.auth.stamp();
           let rid = null;
+          // A new receipt needs a number first. Shared database: reserved on the server so DT and DAT never clash.
+          const hasReceipt = editing && editing.receiptId && App.receiptById(editing.receiptId);
+          let seq = null, noNumber = false;
+          if (wantReceipt && !hasReceipt) {
+            busy = true;
+            const btn = el.querySelector('button[type=submit]'), label = btn && btn.textContent;
+            if (btn) { btn.disabled = true; btn.textContent = 'Getting receipt number…'; }
+            seq = await App.reserveReceiptSeq(App.leoYearOf(rec.date));
+            busy = false;
+            if (btn) { btn.disabled = false; btn.textContent = label; }
+            if (seq === false) { wantReceipt = false; noNumber = true; }
+          }
+          const offlineNote = noNumber ? ' · offline, so no receipt yet — issue it from the payment log when back online' : '';
           if (editing) {
             let revised = false;
             App.commit((st) => {
               const p = st.payments.find((x) => x.id === editing.id);
               Object.assign(p, rec, { editedByName: by.byName || '', editedAt: Date.now() });
               if (p.receiptId && st.receipts.some((r) => r.id === p.receiptId)) { App.reviseReceipt(st, p, by); rid = p.receiptId; revised = true; }
-              else if (wantReceipt) rid = App.issueReceipt(st, p, by).id;
+              else if (wantReceipt) rid = App.issueReceipt(st, p, by, Date.now(), seq || 0).id;
             });
             ctrl.close();
             const r = rid && App.receiptById(rid);
-            App.ui.toast(revised ? `Payment updated · receipt ${r.no} updated` : r ? `Payment updated · receipt ${r.no} issued` : 'Payment updated', 'ok',
+            App.ui.toast((revised ? `Payment updated · receipt ${r.no} updated` : r ? `Payment updated · receipt ${r.no} issued` : 'Payment updated') + offlineNote, noNumber ? 'error' : 'ok',
               revised ? { label: 'View receipt', run: () => App.receipts.show(rid) } : undefined);
             if (r && !revised) App.receipts.show(rid);
           } else {
@@ -425,12 +440,12 @@
             App.commit((st) => {
               const p = { id, createdAt: Date.now(), ...rec, ...by };
               st.payments.push(p);
-              if (wantReceipt) rid = App.issueReceipt(st, p, by).id;
+              if (wantReceipt) rid = App.issueReceipt(st, p, by, Date.now(), seq || 0).id;
             });
             ctrl.close();
             const c = App.clubById(d.clubId), r = rid && App.receiptById(rid);
             // Undo keeps the receipt number used: the receipt stays in the register marked cancelled
-            App.ui.toast(`${App.money(amount, false)} recorded for ${c ? c.name : 'club'}${r ? ' · receipt ' + r.no : ''}`, 'ok', {
+            App.ui.toast(`${App.money(amount, false)} recorded for ${c ? c.name : 'club'}${r ? ' · receipt ' + r.no : ''}${offlineNote}`, noNumber ? 'error' : 'ok', {
               label: 'Undo',
               run: () => {
                 App.commit((st) => { App.cancelReceipts(st, [id], 'Payment undone', App.auth.stamp()); st.payments = st.payments.filter((p) => p.id !== id); });

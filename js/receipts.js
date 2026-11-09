@@ -612,16 +612,24 @@
 
   Object.assign(App.actions, {
     'view-receipt': (el) => show(el.dataset.id),
-    'issue-receipt': (el) => {
-      if (!App.state.payments.some((x) => x.id === el.dataset.id)) return;
+    'issue-receipt': async (el) => {
+      const pay = App.state.payments.find((x) => x.id === el.dataset.id);
+      if (!pay) return;
+      if (pay.receiptId && App.receiptById(pay.receiptId)) { show(pay.receiptId); return; }
+      if (el.disabled) return;
+      el.disabled = true;
+      const seq = await App.reserveReceiptSeq(App.leoYearOf(pay.date));
+      el.disabled = false;
+      if (seq === false) { App.ui.toast('Can’t get a receipt number while offline. Try again when the connection is back.', 'error'); return; }
       let rid = null;
       App.commit((s) => {
-        const p = s.payments.find((x) => x.id === el.dataset.id);
+        const p = s.payments.find((x) => x.id === pay.id);
+        if (!p) return;
         if (p.receiptId && s.receipts.some((r) => r.id === p.receiptId)) { rid = p.receiptId; return; }
         fillReceiptDetails(s, p);
-        rid = App.issueReceipt(s, p, App.auth.stamp()).id;
+        rid = App.issueReceipt(s, p, App.auth.stamp(), Date.now(), seq || 0).id;
       });
-      show(rid);
+      if (rid) show(rid);
     },
     'issue-missing-receipts': async () => {
       const miss = missingPayments();
@@ -632,12 +640,26 @@
       });
       if (!ok) return;
       const by = App.auth.stamp();
+      const todo = miss.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.createdAt - b.createdAt);
+      // Reserve a block of numbers for each Leo year involved (shared database: on the server)
+      const next = {};
+      for (const y of new Set(todo.map((p) => App.leoYearOf(p.date)))) {
+        const first = await App.reserveReceiptSeq(y, todo.filter((p) => App.leoYearOf(p.date) === y).length);
+        if (first === false) { App.ui.toast('Can’t get receipt numbers while offline. Try again when the connection is back.', 'error'); return; }
+        next[y] = first;   // null: numbered on this device
+      }
+      let issued = 0;
       App.commit((s) => {
-        s.payments.filter((p) => !p.receiptId || !s.receipts.some((r) => r.id === p.receiptId))
-          .sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.createdAt - b.createdAt)
-          .forEach((p) => { fillReceiptDetails(s, p); App.issueReceipt(s, p, by); });
+        todo.forEach((m) => {
+          const p = s.payments.find((x) => x.id === m.id);
+          if (!p || (p.receiptId && s.receipts.some((r) => r.id === p.receiptId))) return;
+          const y = App.leoYearOf(p.date);
+          fillReceiptDetails(s, p);
+          App.issueReceipt(s, p, by, Date.now(), next[y] ? next[y]++ : 0);
+          issued++;
+        });
       });
-      App.ui.toast(`${miss.length} receipt${miss.length === 1 ? '' : 's'} issued`);
+      App.ui.toast(`${issued} receipt${issued === 1 ? '' : 's'} issued`);
     },
     'export-receipts-xlsx': (el) => exportXlsx(!!(el && el.dataset.scope === 'all')),
     'export-receipts-pdf': (el) => exportPdf(!!(el && el.dataset.scope === 'all'), el),

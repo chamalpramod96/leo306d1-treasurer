@@ -1273,3 +1273,32 @@ body.locked .site-header, body.locked .app, body.locked .site-footer, body.locke
   body.printing-receipt .rcpt-wrap { padding: 0; border: 0; background: none; }
   body.printing-receipt .rcpt-paper { box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* =========================================================
+   Shared database (Firebase): sync status pill, connecting screen
+   ========================================================= */
+.sync-pill {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 10px 3px 8px; border-radius: 99px;
+  color: var(--gold-200); background: rgba(255, 255, 255, .08); border: 1px solid rgba(211, 167, 90, .35);
+}
+.sync-pill[hidden] { display: none; }
+.sync-pill::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: #7fd49a; }
+.sync-pill.is-busy::before { background: var(--gold-400); animation: sync-pulse 1s ease-in-out infinite; }
+.sync-pill.is-off { color: #ffd9a8; }
+.sync-pill.is-off::before { background: transparent; border: 1.5px solid currentColor; width: 5px; height: 5px; }
+.sync-pill.is-err { color: #ffc9c9; border-color: rgba(255, 150, 150, .5); }
+.sync-pill.is-err::before { background: #ff8a8a; }
+@keyframes sync-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .sync-pill.is-busy::before { animation: none; } }
+/* phones and small tablets: only show the pill when something needs attention */
+@media (max-width: 860px) {
+  .hdr-meta { display: flex; }
+  .hdr-meta .year-pill, .hdr-meta .hdr-treasurer, .sync-pill.is-ok { display: none; }
+  .sync-pill { font-size: 11px; padding: 2px 8px 2px 7px; max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+.auth-connecting { text-align: center; padding: 14px 0 6px; }
+.auth-connecting .spin { width: 30px; height: 30px; border-width: 3px; color: var(--maroon-700); margin-bottom: 14px; }
+.auth-connecting .auth-p { margin-bottom: 0; }

@@ -8,6 +8,9 @@
   const { esc, chip, formData } = App.ui;
 
   const SLOT_ORDER = ['president', 'vicepresident', 'treasurer', 'asst_treasurer', 'superadmin'];
+  const cloud = () => App.cloud.enabled;
+  /** How a login is shown: its email (Firebase) or @username (this device only). */
+  const handle = (u) => (cloud() ? esc(u.email || u.username) : '@' + esc(u.username));
 
   function tempPassword() {
     const letters = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ', digits = '23456789';
@@ -49,9 +52,13 @@
       </div></div>
 
       <div class="callout" style="margin-bottom:18px">
-        <b>How logins work:</b> new officers get a temporary password and must set their own at first sign-in.
-        Logins are kept in this browser together with the data and are included in full backups (passwords only as secure hashes).
-        Officers sign in on the device where the portal data is kept.
+        ${cloud()
+          ? `<b>How logins work:</b> officers sign in with their <b>email</b> on any phone or computer, and everyone sees the same data.
+            New officers get a temporary password and must set their own at first sign-in. A forgotten password is reset with a link
+            sent to the officer's email. Logins are kept in Firebase Authentication (project <b>${esc(App.cloud.projectId)}</b>).`
+          : `<b>How logins work:</b> new officers get a temporary password and must set their own at first sign-in.
+            Logins are kept in this browser together with the data and are included in full backups (passwords only as secure hashes).
+            Officers sign in on the device where the portal data is kept.`}
       </div>
 
       <div class="user-grid">${slots}</div>
@@ -67,11 +74,11 @@
           </div>
           <p class="hint" style="margin:10px 0 0">Officers can always edit or delete their own notes.</p>
         </div>
-        <div class="card">
+        ${cloud() ? '' : `<div class="card">
           <div class="card-head"><h2 class="card-title"><span class="ttl-ico">⚿</span>Super Admin recovery key</h2></div>
           <p class="hint" style="margin-top:0">The recovery key resets the Super Admin password if it is forgotten. Generating a new key makes the old one stop working.</p>
           <button class="btn" data-action="recovery-regen">Generate a new recovery key</button>
-        </div>
+        </div>`}
       </div>
     </section>`;
   }
@@ -83,11 +90,11 @@
     return `<div class="user-card ${u.active ? '' : 'is-off'}">
       <div class="user-role">${esc(R.label)}${self ? ' <small>· you</small>' : ''}</div>
       <div class="user-name">${esc(u.name)}</div>
-      <div class="user-meta">@${esc(u.username)} · ${status}</div>
+      <div class="user-meta">${handle(u)} · ${status}</div>
       <div class="user-meta">Last sign-in: ${u.lastLogin ? esc(App.fmtDateTime(u.lastLogin)) : 'never'}</div>
       <div class="btn-row" style="margin-top:10px">
         <button class="btn btn-sm" data-action="user-edit" data-id="${u.id}">✎ Edit</button>
-        <button class="btn btn-sm" data-action="user-reset" data-id="${u.id}">Reset password</button>
+        <button class="btn btn-sm" data-action="user-reset" data-id="${u.id}">${cloud() ? 'Send reset email' : 'Reset password'}</button>
         ${self ? '' : `<button class="btn btn-sm" data-action="user-toggle" data-id="${u.id}">${u.active ? 'Disable' : 'Enable'}</button>
         <button class="btn btn-sm btn-danger" data-action="user-delete" data-id="${u.id}">Delete</button>`}
       </div>
@@ -96,14 +103,15 @@
 
   /* ---------- dialogs ---------- */
   function showPassword(title, name, username, pw) {
+    const idLabel = cloud() ? 'Email' : 'Username';
     App.ui.open({
       title, size: 'sm',
       render: () => `<p style="margin-top:0">Give these details to <b>${esc(name)}</b>. They will be asked to choose their own password when they first sign in.</p>
-        <dl class="kv" style="font-size:15px"><dt>Username</dt><dd>${esc(username)}</dd><dt>Temporary password</dt><dd><code class="temp-pw">${esc(pw)}</code></dd></dl>
+        <dl class="kv" style="font-size:15px"><dt>${idLabel}</dt><dd>${esc(username)}</dd><dt>Temporary password</dt><dd><code class="temp-pw">${esc(pw)}</code></dd></dl>
         <p class="hint">This password is not shown again.</p>`,
       footer: () => `<button class="btn" id="copyPw">Copy</button><button class="btn btn-primary" data-close>Done</button>`,
       onMount: (el) => el.querySelector('#copyPw').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(`Username: ${username}\nTemporary password: ${pw}`); App.ui.toast('Copied'); } catch (e) { App.ui.toast('Copy failed', 'error'); }
+        try { await navigator.clipboard.writeText(`${idLabel}: ${username}\nTemporary password: ${pw}${cloud() ? '\nSign in at: ' + location.href.split('#')[0] : ''}`); App.ui.toast('Copied'); } catch (e) { App.ui.toast('Copy failed', 'error'); }
       }),
     });
   }
@@ -115,19 +123,27 @@
       title: 'Create login', sub: esc(R.label),
       render: () => `<form id="userForm" class="form-grid">
           <label class="field full"><span>Full name *</span><input name="name" required placeholder="e.g. Leo Lion …" autofocus></label>
-          <label class="field"><span>Username *</span><input name="username" required autocapitalize="none" spellcheck="false" placeholder="e.g. treasurer"><small>Letters, numbers, dot, dash, underscore</small></label>
+          ${cloud()
+            ? '<label class="field"><span>Email *</span><input name="email" type="email" required autocapitalize="none" spellcheck="false" placeholder="officer@example.com"><small>They sign in with this email</small></label>'
+            : '<label class="field"><span>Username *</span><input name="username" required autocapitalize="none" spellcheck="false" placeholder="e.g. treasurer"><small>Letters, numbers, dot, dash, underscore</small></label>'}
           <label class="field"><span>Temporary password *</span><input name="password" required value="${esc(pw)}" spellcheck="false"><small>They change it at first sign-in</small></label>
         </form><div class="auth-error" role="alert" hidden style="margin-top:12px"></div>`,
       footer: () => `<button class="btn" data-close>Cancel</button><button class="btn btn-primary" type="submit" form="userForm">Create login</button>`,
       onMount: (el) => el.querySelector('#userForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const d = formData(e.target); d.password = e.target.password.value;
+        const btn = el.querySelector('button[type=submit]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
         try {
           const u = await App.auth.createUser({ ...d, role });
           ctrl.close();
           App.refresh();
-          showPassword('Login created', u.name, u.username, d.password);
-        } catch (err) { const b = el.querySelector('.auth-error'); b.textContent = err.message; b.hidden = false; }
+          if (u.restored) App.ui.toast(`${u.name}'s earlier login is active again. A link to set a new password was sent to ${u.email}.`);
+          else showPassword('Login created', u.name, u.username, d.password);
+        } catch (err) {
+          const b = el.querySelector('.auth-error'); b.textContent = err.message; b.hidden = false;
+          if (btn) { btn.disabled = false; btn.textContent = 'Create login'; }
+        }
       }),
     });
   }
@@ -139,12 +155,14 @@
       title: 'Edit login', sub: esc(App.auth.roleLabel(u.role)), size: 'sm',
       render: () => `<form id="userEdit" class="stack" style="gap:12px">
           <label class="field"><span>Full name</span><input name="name" required value="${esc(u.name)}"></label>
-          <label class="field"><span>Username</span><input name="username" required value="${esc(u.username)}" autocapitalize="none" spellcheck="false"></label>
+          ${cloud()
+            ? `<p class="hint" style="margin:0">Signs in as <b>${esc(u.email)}</b>. To use another email, delete this login and create a new one.</p>`
+            : `<label class="field"><span>Username</span><input name="username" required value="${esc(u.username)}" autocapitalize="none" spellcheck="false"></label>`}
         </form><div class="auth-error" role="alert" hidden style="margin-top:12px"></div>`,
       footer: () => `<button class="btn" data-close>Cancel</button><button class="btn btn-primary" type="submit" form="userEdit">Save</button>`,
-      onMount: (el) => el.querySelector('#userEdit').addEventListener('submit', (e) => {
+      onMount: (el) => el.querySelector('#userEdit').addEventListener('submit', async (e) => {
         e.preventDefault();
-        try { App.auth.updateUser(id, formData(e.target)); ctrl.close(); App.refresh(); App.ui.toast('Login updated'); }
+        try { await App.auth.updateUser(id, formData(e.target)); ctrl.close(); App.refresh(); App.ui.toast('Login updated'); }
         catch (err) { const b = el.querySelector('.auth-error'); b.textContent = err.message; b.hidden = false; }
       }),
     });
@@ -154,7 +172,7 @@
     const u = App.auth.current();
     if (!u) return;
     const ctrl = App.ui.open({
-      title: esc(u.name), sub: `${esc(App.auth.roleLabel(u.role))} · @${esc(u.username)}`,
+      title: esc(u.name), sub: `${esc(App.auth.roleLabel(u.role))} · ${handle(u)}`,
       render: () => `
         <div class="card" style="box-shadow:none;margin-bottom:14px">
           <div class="card-head"><h3 class="card-title">What you can do</h3></div>
@@ -189,24 +207,30 @@
     'user-reset': async (el) => {
       const u = App.auth.users().find((x) => x.id === el.dataset.id);
       if (!u) return;
+      if (cloud()) {
+        const ok = await App.ui.confirm({ title: 'Send a password-reset email?', confirmText: 'Send email', message: `Firebase emails <b>${esc(u.email)}</b> a link to choose a new password. Their current password keeps working until they do.` });
+        if (!ok) return;
+        try { await App.auth.resetPassword(u.id); App.ui.toast(`Reset link sent to ${u.email}`); } catch (e) { App.ui.toast(e.message, 'error'); }
+        return;
+      }
       const ok = await App.ui.confirm({ title: 'Reset password?', confirmText: 'Reset password', message: `A new temporary password will be created for <b>${esc(u.name)}</b> (${esc(App.auth.roleLabel(u.role))}). Their old password stops working.` });
       if (!ok) return;
       const pw = tempPassword();
       try { await App.auth.resetPassword(u.id, pw); App.refresh(); showPassword('Password reset', u.name, u.username, pw); }
       catch (e) { App.ui.toast(e.message, 'error'); }
     },
-    'user-toggle': (el) => {
+    'user-toggle': async (el) => {
       const u = App.auth.users().find((x) => x.id === el.dataset.id);
       if (!u) return;
-      try { App.auth.setActive(u.id, !u.active); App.refresh(); App.ui.toast(u.active ? `${u.name} can no longer sign in` : `${u.name} can sign in again`); }
+      try { await App.auth.setActive(u.id, !u.active); App.refresh(); App.ui.toast(u.active ? `${u.name} can no longer sign in` : `${u.name} can sign in again`); }
       catch (e) { App.ui.toast(e.message, 'error'); }
     },
     'user-delete': async (el) => {
       const u = App.auth.users().find((x) => x.id === el.dataset.id);
       if (!u) return;
-      const ok = await App.ui.confirm({ title: 'Delete login?', danger: true, confirmText: 'Delete login', message: `<b>${esc(u.name)}</b> (${esc(App.auth.roleLabel(u.role))}) will no longer be able to sign in. Notes and payments they recorded are kept.` });
+      const ok = await App.ui.confirm({ title: 'Delete login?', danger: true, confirmText: 'Delete login', message: `<b>${esc(u.name)}</b> (${esc(App.auth.roleLabel(u.role))}) will no longer be able to sign in. Notes and payments they recorded are kept.${cloud() ? ' The same email can be given a login again later.' : ''}` });
       if (!ok) return;
-      try { App.auth.deleteUser(u.id); App.refresh(); App.ui.toast('Login deleted'); } catch (e) { App.ui.toast(e.message, 'error'); }
+      try { await App.auth.deleteUser(u.id); App.refresh(); App.ui.toast('Login deleted'); } catch (e) { App.ui.toast(e.message, 'error'); }
     },
     'recovery-regen': async () => {
       const ok = await App.ui.confirm({ title: 'Generate a new recovery key?', confirmText: 'Generate', message: 'The current recovery key will stop working. Make sure you save the new one.' });

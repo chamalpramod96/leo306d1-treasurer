@@ -2,27 +2,29 @@
    Service worker — lets the portal open offline and install as an app.
    Bump CACHE when files change so phones pick up the new version.
    ========================================================= */
-const CACHE = 'leo306d1-treasury-v1.8';
+const CACHE = 'leo306d1-treasury-v1.9';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './css/styles.css?v=1.8',
-  './js/core.js?v=1.8',
-  './js/ui.js?v=1.8',
-  './js/auth.js?v=1.8',
-  './js/views-auth.js?v=1.8',
-  './js/views-dashboard.js?v=1.8',
-  './js/views-clubs.js?v=1.8',
-  './js/views-club.js?v=1.8',
-  './js/files.js?v=1.8',
-  './js/receipts.js?v=1.8',
-  './js/views-reports.js?v=1.8',
-  './js/views-payments.js?v=1.8',
-  './js/views-settings.js?v=1.8',
-  './js/views-users.js?v=1.8',
-  './js/pwa.js?v=1.8',
-  './js/main.js?v=1.8',
+  './css/styles.css?v=1.9',
+  './js/core.js?v=1.9',
+  './js/ui.js?v=1.9',
+  './js/firebase-config.js',
+  './js/auth.js?v=1.9',
+  './js/cloud.js?v=1.9',
+  './js/views-auth.js?v=1.9',
+  './js/views-dashboard.js?v=1.9',
+  './js/views-clubs.js?v=1.9',
+  './js/views-club.js?v=1.9',
+  './js/files.js?v=1.9',
+  './js/receipts.js?v=1.9',
+  './js/views-reports.js?v=1.9',
+  './js/views-payments.js?v=1.9',
+  './js/views-settings.js?v=1.9',
+  './js/views-users.js?v=1.9',
+  './js/pwa.js?v=1.9',
+  './js/main.js?v=1.9',
   './assets/logo.webp',
   './assets/logo-sm.webp',
   './assets/lions-intl.png',
@@ -62,7 +64,25 @@ self.addEventListener('fetch', (e) => {
     }));
     return;
   }
+  // Firebase library (versioned URLs never change): cache first, so the installed app also opens offline.
+  // Firestore and sign-in traffic goes to other Google hosts and is never touched here.
+  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    e.respondWith(caches.open(CACHE).then(async (c) => {
+      const hit = await c.match(req);
+      return hit || fetch(req).then((res) => { if (res && res.ok) c.put(req, res.clone()); return res; });
+    }));
+    return;
+  }
   if (url.origin !== self.location.origin) return;
+
+  // Firebase settings: always the latest copy (so a newly pasted config works at once), cached copy offline
+  if (url.pathname.endsWith('/js/firebase-config.js')) {
+    e.respondWith(fetch(req, { cache: 'no-store' }).then((res) => {
+      if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./js/firebase-config.js', copy)); }
+      return res;
+    }).catch(() => caches.match('./js/firebase-config.js')));
+    return;
+  }
 
   // Page navigations: network first (fresh version), cached shell when offline
   if (req.mode === 'navigate') {

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=1.8">
+  <link rel="stylesheet" href="css/styles.css?v=1.9">
 </head>
 <body>
   <!-- ===== Loading screen ===== -->
@@ -48,6 +48,7 @@
       </a>
       <div class="hdr-meta">
         <span class="year-pill" id="yearPill">Leo Year 2026/2027</span>
+        <span class="sync-pill" id="syncPill" role="status" hidden></span>
         <span class="hdr-treasurer" id="hdrTreasurer"></span>
       </div>
       <button type="button" class="hdr-avatar" data-action="my-account" aria-label="My account"><span id="hdrAvatar">L</span></button>
@@ -79,7 +80,7 @@
   <footer class="site-footer">
     <div class="footer-rule" aria-hidden="true"><span>★</span></div>
     <p><strong id="footDistrict">Leo District 306 D1</strong> · District Treasurer Portal · <span id="footYear">2026/2027</span></p>
-    <p class="footer-small">Data is saved in this browser only. Export a backup from Settings &amp; Backup regularly.</p>
+    <p class="footer-small" id="footStore">Data is saved in this browser only. Export a backup from Settings &amp; Backup regularly.</p>
   </footer>
 
   <!-- ===== Phone: floating action + bottom tab bar ===== -->
@@ -97,20 +98,22 @@
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="js/core.js?v=1.8"></script>
-  <script src="js/ui.js?v=1.8"></script>
-  <script src="js/auth.js?v=1.8"></script>
-  <script src="js/views-auth.js?v=1.8"></script>
-  <script src="js/views-dashboard.js?v=1.8"></script>
-  <script src="js/views-clubs.js?v=1.8"></script>
-  <script src="js/views-club.js?v=1.8"></script>
-  <script src="js/files.js?v=1.8"></script>
-  <script src="js/receipts.js?v=1.8"></script>
-  <script src="js/views-reports.js?v=1.8"></script>
-  <script src="js/views-payments.js?v=1.8"></script>
-  <script src="js/views-settings.js?v=1.8"></script>
-  <script src="js/views-users.js?v=1.8"></script>
-  <script src="js/pwa.js?v=1.8"></script>
-  <script src="js/main.js?v=1.8"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/core.js?v=1.9"></script>
+  <script src="js/ui.js?v=1.9"></script>
+  <script src="js/auth.js?v=1.9"></script>
+  <script src="js/cloud.js?v=1.9"></script>
+  <script src="js/views-auth.js?v=1.9"></script>
+  <script src="js/views-dashboard.js?v=1.9"></script>
+  <script src="js/views-clubs.js?v=1.9"></script>
+  <script src="js/views-club.js?v=1.9"></script>
+  <script src="js/files.js?v=1.9"></script>
+  <script src="js/receipts.js?v=1.9"></script>
+  <script src="js/views-reports.js?v=1.9"></script>
+  <script src="js/views-payments.js?v=1.9"></script>
+  <script src="js/views-settings.js?v=1.9"></script>
+  <script src="js/views-users.js?v=1.9"></script>
+  <script src="js/pwa.js?v=1.9"></script>
+  <script src="js/main.js?v=1.9"></script>
 </body>
 </html>

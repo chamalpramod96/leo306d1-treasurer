@@ -26,7 +26,8 @@ A web app for the Leo District 306 D1 District Treasurer, themed from the distri
   - **Per receipt:** download it as a **PDF** or an **image**, **share** it (on phones the PDF goes to WhatsApp, email and so on; elsewhere you get a text version for WhatsApp, email or copying), or **print** it on a computer.
   - **Receipt register** (Payments → Receipts): every receipt with totals for cash, bank and other, DT and DAT. Filter by Leo year, DT/DAT, mode or text, then download the list as a real **Excel (.xlsx)** sheet or a **PDF**. Payments recorded before receipts existed can be given receipts in one step.
 - **Dashboard**: headline totals, report progress by month and money collected for each payment type. It also has a "needs attention" list that includes reminders that are due, recent activity, and the latest district notices.
-- **Settings & Backup**: Leo year, report due day and treasurer name. You can back up and restore everything as JSON, export CSV files that open in Excel, load sample data and clear all data.
+- **Settings & Backup**: Leo year, report due day and treasurer name. You can back up and restore everything as JSON, export CSV files that open in Excel, load sample data and clear all data. The **Online database** card shows whether the portal is connected to Firebase and whether everything is saved.
+- **Shared online data (Firebase)**: once connected to a Firebase project, every officer signs in with their email on any device and sees the same data, updated live. See [FIREBASE-SETUP.md](FIREBASE-SETUP.md).
 
 ## Logins & roles
 
@@ -40,12 +41,22 @@ The portal opens on a sign-in page that uses the district emblem, with the Leo l
 | District President | 1 | View everything, add notes, export CSV files |
 | District Vice President | 1 | View everything, add notes, export CSV files |
 
-- **First run:** the portal asks you to create the **Super Admin** login. It then shows a **recovery key** once. Keep the key safe, because it is the only way to reset a forgotten Super Admin password.
+- **First run:** the portal asks you to create the **Super Admin** login.
 - The Super Admin creates the other logins under **Users & Access**. Each officer gets a temporary password and must choose their own the first time they sign in.
-- Passwords are stored only as PBKDF2-SHA256 hashes. After 5 wrong passwords, sign-in is paused for a short time. Officers are signed out after 30 minutes without activity.
+- Officers are signed out after 30 minutes without activity, and after 12 hours in any case.
 - Notes, payments and report marks record **who** added them.
 
-**Limitation:** without a server, logins protect the portal on the computer and browser where the data is kept. They do not secure data across devices. Someone with technical knowledge and access to that computer could still read the browser's storage. Full backups include the logins (as hashes), so restoring a backup on another computer brings the officers' accounts with it.
+How the logins work depends on whether the portal is connected to Firebase:
+
+| | Connected to Firebase | Browser only (no Firebase config) |
+|---|---|---|
+| Sign in with | email and password | username and password |
+| Works on | any device, same logins everywhere | the browser where the logins were created |
+| Forgotten password | **Email me a reset link** on the sign-in page, for every officer | the Super Admin resets officers; the Super Admin uses the **recovery key** shown once at setup |
+| Passwords kept by | Firebase Authentication | the browser, as PBKDF2-SHA256 hashes; 5 wrong tries pause sign-in |
+| What protects the data | the logins plus the security rules in `firestore.rules`, checked by Google's servers | the logins only, on that browser |
+
+**Browser-only limitation:** without a server, logins protect the portal on the computer and browser where the data is kept. They do not secure data across devices. Someone with technical knowledge and access to that computer could still read the browser's storage. Full backups include the logins (as hashes), so restoring a backup on another computer brings the officers' accounts with it. In Firebase mode, backups hold only the district data.
 
 ## On phones: install it like an app
 
@@ -69,7 +80,9 @@ The installed app uses its own **"District Treasury" icon** (`assets/icons/app-i
 
 Once it has been opened, the app also opens offline. Installing as an app only works when the site is served over **https** (for example GitHub Pages) or from `localhost`. It does not work when you open `index.html` directly as a file.
 
-**Each phone keeps its own data**, the same as each browser. Use backups to move data between devices. Receipt numbers are also counted per device. If the DT and the DAT both issue receipts on their own phones, give each phone its own receipt prefix in Settings (for example `LD306D1-DT` and `LD306D1-DAT`) so that two receipts never get the same number.
+**Connected to Firebase**, every phone shows the same data, and receipt numbers come from one shared counter, so two officers never issue the same number. The header shows **Synced**, **Saving…**, **Offline** or **Not saved**. Offline, the app keeps working from the phone's copy and uploads the changes when the connection is back. A payment recorded offline gets its e-receipt once the phone is online again.
+
+**Without Firebase, each phone keeps its own data**, the same as each browser. Use backups to move data between devices. Receipt numbers are also counted per device. If the DT and the DAT both issue receipts on their own phones, give each phone its own receipt prefix in Settings (for example `LD306D1-DT` and `LD306D1-DAT`) so that two receipts never get the same number.
 
 **Publishing an update:** change the `?v=` number in `index.html` and `sw.js`, and the `CACHE` name in `sw.js`. Phones then download the new files instead of keeping the old ones.
 
@@ -85,12 +98,14 @@ and open http://localhost:5180.
 
 ## Where the data lives
 
-All data is saved in the browser's `localStorage` on the device you use. It is not sent anywhere.
+`js/firebase-config.js` decides this.
 
-- Use **Settings & Backup → Download backup** regularly. To move to another computer, restore the backup file there.
-- Clearing the browser's site data erases the records, so keep backups.
+- **Filled in (Firebase):** the data is kept in the district's **Cloud Firestore** database, and the logins in **Firebase Authentication**. Each device also keeps a copy so the portal opens and works offline. Setup, security rules, bringing in existing data and the free-plan limits are in [FIREBASE-SETUP.md](FIREBASE-SETUP.md).
+- **Empty (`apiKey: ''`):** all data is saved in the browser's `localStorage` on the device you use. It is not sent anywhere. Clearing the browser's site data erases the records.
 
-To host it for others (for example GitHub Pages, Netlify or Firebase Hosting), upload this folder as it is. Each person's browser will still keep its own data until a shared online database is added.
+Either way, use **Settings & Backup → Download backup** regularly and keep the file somewhere safe. **Restore from backup** brings it back (into the shared database when connected to Firebase).
+
+To host it for others (for example GitHub Pages, Netlify or Firebase Hosting), upload this folder as it is. With Firebase, add the site's address under **Authentication → Settings → Authorized domains** in the Firebase console.
 
 ## Files
 
@@ -103,8 +118,11 @@ js/views-*.js            Dashboard, Clubs & Notes (with notices), Treasurer Repo
 js/views-club.js         club profile page, send-reminder and share messages
 js/receipts.js           payment e-receipts (screen, PDF, image, share) and the receipt register
 js/files.js              builds .xlsx and .pdf files in the browser (no libraries)
-js/auth.js               officer accounts, roles, permissions, sessions
-js/views-auth.js         sign-in, first-time setup, recovery, forced password change
+js/auth.js               officer accounts, roles, permissions, sessions (browser-only mode)
+js/firebase-config.js    the Firebase project's web config; empty = browser-only mode
+js/cloud.js              Firebase mode: email logins, live sync with Cloud Firestore,
+                         shared receipt counter, sync status, upload of browser data
+js/views-auth.js         sign-in, first-time setup, recovery / reset email, forced password change
 js/views-users.js        Users & Access (Super Admin), My account
 js/pwa.js                install as an app, offline support, phone "More" menu
 js/main.js               router, sign-in gate, loading screen, action wiring
@@ -113,4 +131,7 @@ sw.js                    service worker: caches the app so it opens offline
 assets/                  district emblem, Leo lions watermark (gold/maroon), favicon,
                          Lions International and Leo logos for the e-receipt
 assets/icons/            installed-app icons from the "District Treasury" logo (192, 512, maskable, Apple 180)
+firestore.rules          Firestore security rules by role (publish in the Firebase console)
+firebase.json            Firebase CLI settings: rules, optional Firebase Hosting, local emulators
+FIREBASE-SETUP.md        step-by-step guide to connecting a Firebase project
 ```

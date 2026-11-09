@@ -1,0 +1,106 @@
+rules_version = '2';
+
+// =========================================================
+// Firestore security rules — Leo District 306 D1 Treasury Portal
+// ---------------------------------------------------------
+// Publish: Firebase console → Firestore Database → Rules → paste this whole file → Publish.
+// The roles match PERMS in js/auth.js:
+//   superadmin      everything, and officer logins
+//   treasurer       everything except officer logins
+//   asst_treasurer  payments, receipts, treasurer reports, notes
+//   president, vicepresident   view everything, add notes and notices
+// Only signed-in officers whose profile (users/{uid}) is active can read anything.
+// =========================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function profilePath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function officer() {
+      return signedIn() && exists(profilePath())
+        && get(profilePath()).data.active == true
+        && get(profilePath()).data.get('removed', false) != true;
+    }
+    function hasRole(roles) { return officer() && get(profilePath()).data.role in roles; }
+    function admin()     { return hasRole(['superadmin']); }
+    function manager()   { return hasRole(['superadmin', 'treasurer']); }                    // clubs, payment types, settings, backups
+    function collector() { return hasRole(['superadmin', 'treasurer', 'asst_treasurer']); }  // payments, receipts, reports
+    function changedOnly(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // ---------- first-time setup: one Super Admin, once ----------
+    match /system/setup {
+      allow get: if true;   // the sign-in page needs to know whether setup is done
+      allow create: if signedIn()
+        && request.resource.data.superadmin == request.auth.uid
+        && getAfter(profilePath()).data.role == 'superadmin';
+      allow update, delete: if false;
+    }
+
+    // ---------- officer logins ----------
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;   // own profile, even when disabled
+      allow read: if officer();
+      allow create: if
+        // Super Admin adds an officer (never a second Super Admin)
+        (admin() && request.resource.data.role in ['president', 'vicepresident', 'treasurer', 'asst_treasurer'])
+        // first-time setup: the very first account makes itself Super Admin, together with system/setup
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.role == 'superadmin'
+            && request.resource.data.active == true
+            && !exists(/databases/$(database)/documents/system/setup)
+            && getAfter(/databases/$(database)/documents/system/setup).data.superadmin == uid);
+      allow update: if
+        // Super Admin manages other officers (cannot create another Super Admin)
+        (admin() && uid != request.auth.uid
+          && resource.data.role != 'superadmin'
+          && request.resource.data.role in ['president', 'vicepresident', 'treasurer', 'asst_treasurer'])
+        // Super Admin edits their own name (cannot change own role or disable themselves)
+        || (admin() && uid == request.auth.uid && changedOnly(['name', 'lastLogin', 'mustChange']))
+        // every officer: record their sign-in, and clear "must change password" after changing it
+        || (signedIn() && uid == request.auth.uid && resource.data.active == true
+            && (changedOnly(['lastLogin'])
+                || (changedOnly(['lastLogin', 'mustChange']) && request.resource.data.mustChange == false)));
+      allow delete: if false;   // logins are switched off (removed: true), never deleted, so the same email can come back
+    }
+
+    // ---------- district data ----------
+    match /clubs/{id}        { allow read: if officer(); allow write: if manager(); }
+    match /paymentHeads/{id} { allow read: if officer(); allow write: if manager(); }
+    match /payments/{id}     { allow read: if officer(); allow write: if collector(); }
+    match /reports/{clubId}  { allow read: if officer(); allow write: if collector(); }
+
+    // Receipt numbers are never reused: collectors issue, revise and cancel; only a full restore/clear deletes
+    match /receipts/{id} {
+      allow read: if officer();
+      allow create, update: if collector();
+      allow delete: if manager();
+    }
+
+    // Notes and notices: any officer adds their own; the author or the Treasurer/Super Admin edits or deletes;
+    // collectors may tick follow-ups and reminders done
+    match /notes/{id} {
+      allow read: if officer();
+      allow create: if manager() || (officer() && request.resource.data.byId == request.auth.uid);
+      allow update: if manager()
+        || (officer() && resource.data.byId == request.auth.uid && request.resource.data.byId == request.auth.uid)
+        || (collector() && changedOnly(['done']));
+      allow delete: if manager() || (officer() && resource.data.byId == request.auth.uid);
+    }
+    match /notices/{id} {
+      allow read: if officer();
+      allow create: if manager() || (officer() && request.resource.data.byId == request.auth.uid);
+      allow update: if manager() || (officer() && resource.data.byId == request.auth.uid && request.resource.data.byId == request.auth.uid);
+      allow delete: if manager() || (officer() && resource.data.byId == request.auth.uid);
+    }
+
+    // ---------- district settings, exemptions, receipt counters ----------
+    match /meta/{docId}    { allow read: if officer(); }   // the portal listens to the whole collection
+    match /meta/settings   { allow read: if officer(); allow write: if manager(); }
+    match /meta/exemptions { allow read: if officer(); allow write: if collector(); }
+    match /meta/receiptSeq {
+      allow read: if officer();
+      allow create, update: if collector();   // the portal only ever raises these numbers, inside a transaction
+      allow delete: if false;
+    }
+  }
+}

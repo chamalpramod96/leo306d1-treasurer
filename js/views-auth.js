@@ -7,11 +7,12 @@
   const App = window.App;
   const esc = App.esc;
 
-  let mode = 'login';          // login | setup | setupKey | recover | mustChange
+  let mode = 'login';          // login | setup | setupKey | recover | mustChange — and with Firebase: reset | connecting | cloudError
   let flash = '';              // message shown above the form (e.g. after idle sign-out)
   let pendingKey = '';         // recovery key shown once after setup
 
   const el = () => document.getElementById('authScreen');
+  const cloud = () => App.cloud.enabled;
 
   function roleChips() {
     return ['president', 'vicepresident', 'treasurer', 'asst_treasurer', 'superadmin']
@@ -55,18 +56,44 @@
   function flashBox() { return flash ? `<div class="auth-flash" role="status">${esc(flash)}</div>` : ''; }
 
   function render() {
-    if (!App.auth.cryptoOK()) {
+    if (!cloud() && !App.auth.cryptoOK()) {
       return shell(`<h2 class="auth-h">Secure connection needed</h2>
         <p class="auth-p">Sign-in needs the browser's secure crypto features. Open the portal from <b>https://</b>, <b>http://localhost</b>, or by double-clicking <b>index.html</b>.</p>`);
+    }
+    if (mode === 'connecting') {
+      const first = App.cloud.phase() === 'loading';
+      return shell(`<div class="auth-connecting" role="status">
+          <span class="spin" aria-hidden="true"></span>
+          <h2 class="auth-h">${first ? 'Connecting…' : 'Loading district data…'}</h2>
+          <p class="auth-p">${first ? 'Connecting to the district’s shared database.' : 'Fetching the latest clubs, reports and payments.'}</p>
+        </div>`);
+    }
+    if (mode === 'cloudError') {
+      return shell(`<h2 class="auth-h">Can’t connect</h2>
+        <div class="auth-error" role="alert">${esc(App.cloud.error())}</div>
+        <button type="button" class="btn btn-primary auth-submit" data-action-auth="retry">Try again</button>`);
+    }
+    if (mode === 'reset') {
+      return shell(`
+        <h2 class="auth-h">Reset your password</h2>
+        <p class="auth-p">Enter the email of your login. Firebase sends you a link to choose a new password.</p>
+        ${errBox()}
+        <form id="authForm" class="auth-form">
+          <label class="field"><span>Email</span><input name="email" type="email" required autocomplete="email" autocapitalize="none" spellcheck="false" autofocus></label>
+          <button class="btn btn-primary auth-submit" type="submit">Send reset link</button>
+        </form>
+        <button type="button" class="auth-link" data-mode="login">← Back to sign in</button>`);
     }
     if (mode === 'setup') {
       return shell(`
         <h2 class="auth-h">First-time setup</h2>
-        <p class="auth-p">Create the <b>Super Admin</b> login. The Super Admin then creates logins for the District President, Vice President, Treasurer and the two Assistant Treasurers.</p>
+        <p class="auth-p">Create the <b>Super Admin</b> login. The Super Admin then creates logins for the District President, Vice President, Treasurer and the two Assistant Treasurers.${cloud() ? ' Logins and data are kept in the district’s Firebase project, so they work on any device.' : ''}</p>
         ${errBox()}
         <form id="authForm" class="auth-form" autocomplete="off">
           <label class="field"><span>Full name</span><input name="name" required placeholder="e.g. Leo A. Perera" autofocus></label>
-          <label class="field"><span>Username</span><input name="username" required placeholder="e.g. superadmin" autocapitalize="none" spellcheck="false"><small>3–32 characters: letters, numbers, dot, dash, underscore</small></label>
+          ${cloud()
+            ? '<label class="field"><span>Email</span><input name="email" type="email" required autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com"><small>You sign in with this email. Password-reset links are sent here.</small></label>'
+            : '<label class="field"><span>Username</span><input name="username" required placeholder="e.g. superadmin" autocapitalize="none" spellcheck="false"><small>3–32 characters: letters, numbers, dot, dash, underscore</small></label>'}
           ${pwField('password', 'Password', 'autocomplete="new-password" minlength="8"')}
           ${pwField('confirm', 'Confirm password', 'autocomplete="new-password" minlength="8"')}
           <small class="hint">At least 8 characters, with letters and numbers.</small>
@@ -116,28 +143,49 @@
     // login
     return shell(`
       <h2 class="auth-h">Sign in</h2>
-      <p class="auth-p">Use the login given to you by the Super Admin.</p>
+      <p class="auth-p">${cloud() ? 'Use the email and password of your officer login.' : 'Use the login given to you by the Super Admin.'}</p>
       ${flashBox()}${errBox()}
       <form id="authForm" class="auth-form">
-        <label class="field"><span>Username</span><input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus></label>
+        ${cloud()
+          ? '<label class="field"><span>Email</span><input name="email" type="email" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus></label>'
+          : '<label class="field"><span>Username</span><input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus></label>'}
         ${pwField('password', 'Password', 'autocomplete="current-password"')}
         <button class="btn btn-primary auth-submit" type="submit">Sign in</button>
       </form>
       <details class="auth-help">
         <summary>Forgot your password?</summary>
-        <p>Officers: ask the <b>Super Admin</b> to reset it from <i>Users &amp; Access</i>.</p>
+        ${cloud()
+          ? '<p>Any officer, the Super Admin included, can get a reset link by email.</p><button type="button" class="auth-link" data-mode="reset">Email me a reset link →</button>'
+          : '<p>Officers: ask the <b>Super Admin</b> to reset it from <i>Users &amp; Access</i>.</p>'}
         ${App.auth.hasRecovery() ? '<button type="button" class="auth-link" data-mode="recover">Super Admin: reset with recovery key →</button>' : ''}
       </details>`);
   }
 
+  function pickMode() {
+    const cur = App.auth.current();
+    if (cloud()) {
+      const ph = App.cloud.phase();
+      if (ph === 'error') mode = 'cloudError';
+      else if (cur && cur.mustChange) mode = 'mustChange';
+      else if (ph !== 'signedOut') mode = 'connecting';
+      else if (!App.auth.hasUsers()) mode = 'setup';
+      else if (mode !== 'reset') mode = 'login';
+      return;
+    }
+    if (!App.auth.hasUsers()) mode = mode === 'setupKey' ? 'setupKey' : 'setup';
+    else if (cur && cur.mustChange) mode = 'mustChange';
+    else if (!['recover', 'setupKey'].includes(mode)) mode = 'login';
+  }
+
   function show(msg) {
     if (msg !== undefined) flash = msg || '';
-    if (!App.auth.hasUsers()) mode = mode === 'setupKey' ? 'setupKey' : 'setup';
-    else if (App.auth.current() && App.auth.current().mustChange) mode = 'mustChange';
-    else if (!['recover', 'setupKey'].includes(mode)) mode = 'login';
+    pickMode();
     document.body.classList.add('locked');
     const box = el();
+    // A background refresh must not wipe what the officer is typing
+    if (msg === undefined && !box.hidden && box.dataset.mode === mode && box.querySelector('#authForm')) return;
     box.hidden = false;
+    box.dataset.mode = mode;
     box.innerHTML = render();
     mount(box);
   }
@@ -146,6 +194,7 @@
     document.body.classList.remove('locked');
     const box = el();
     box.hidden = true;
+    box.dataset.mode = '';
     box.innerHTML = '';
     flash = '';
     mode = 'login';
@@ -179,9 +228,11 @@
       b.setAttribute('aria-label', showIt ? 'Hide password' : 'Show password');
       b.classList.toggle('on', showIt);
     }));
-    box.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; flash = ''; box.innerHTML = render(); mount(box); }));
+    box.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; box.dataset.mode = mode; flash = ''; box.innerHTML = render(); mount(box); }));
     const lo = box.querySelector('[data-action-auth="logout"]');
     lo && lo.addEventListener('click', () => App.auth.logout(''));
+    const retry = box.querySelector('[data-action-auth="retry"]');
+    retry && retry.addEventListener('click', () => location.reload());
 
     const f = box.querySelector('#authForm');
     setTimeout(() => { const a = box.querySelector('[autofocus]'); a && a.focus(); }, 50);
@@ -208,15 +259,22 @@
       try {
         if (mode === 'login') {
           setBusy(f, true, 'Signing in…');
-          const u = await App.auth.login(d.username, d.password);
-          if (u.mustChange) { mode = 'mustChange'; show(''); return; }
+          const u = await App.auth.login(cloud() ? d.email : d.username, d.password);
+          if (u && u.mustChange) { mode = 'mustChange'; show(''); return; }
           enterApp();
+        } else if (mode === 'reset') {
+          setBusy(f, true, 'Sending…');
+          await App.auth.sendReset(d.email);
+          mode = 'login';
+          show(`If ${d.email} has a login, a password-reset link is on its way. Check the spam folder too.`);
         } else if (mode === 'setup') {
           if (d.password !== d.confirm) throw new Error('The two passwords do not match.');
           setBusy(f, true, 'Creating…');
           const { recoveryKey } = await App.auth.setupSuperAdmin(d);
+          if (!recoveryKey) { mode = 'login'; enterApp(); return; }   // Firebase: passwords are reset by email instead
           pendingKey = recoveryKey;
           mode = 'setupKey';
+          box.dataset.mode = mode;
           box.innerHTML = render(); mount(box);
         } else if (mode === 'recover') {
           if (d.password !== d.confirm) throw new Error('The two passwords do not match.');

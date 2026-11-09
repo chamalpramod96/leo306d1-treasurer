@@ -221,5 +221,102 @@
     return true;
   }
 
-  App.files = { xlsx, pdf, save, share, zip, crc32 };
+  /* ---------- read a spreadsheet (.xlsx or .csv) ---------- */
+  /** Unpacks a ZIP (.xlsx) into { path: Uint8Array }. Deflated parts need DecompressionStream (all current browsers). */
+  async function unzip(buf) {
+    const u8 = new Uint8Array(buf), dv = new DataView(buf);
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) throw new Error('This is not an Excel (.xlsx) file.');
+    const count = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    const out = {}, dec = new TextDecoder();
+    for (let n = 0; n < count; n++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true);
+      const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), commentLen = dv.getUint16(p + 32, true);
+      const local = dv.getUint32(p + 42, true);
+      const name = dec.decode(u8.subarray(p + 46, p + 46 + nameLen));
+      p += 46 + nameLen + extraLen + commentLen;
+      if (!/\.(xml|rels)$/i.test(name)) continue;   // only the XML parts are needed
+      const start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+      const raw = u8.subarray(start, start + size);
+      if (method === 0) out[name] = raw;
+      else if (method === 8) {
+        if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot open .xlsx files. Update it, or save the sheet as CSV.');
+        out[name] = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      }
+    }
+    return out;
+  }
+  const byTag = (node, tag) => Array.from(node.getElementsByTagNameNS('*', tag));
+  /** Number cells come back as plain text: 7.71972325E8 → "771972325" (phone numbers stored as numbers keep their digits). */
+  const numText = (v) => { const n = Number(v); return Number.isFinite(n) && Number.isInteger(n) && Math.abs(n) < 1e15 ? String(n) : String(v); };
+  const colIndex = (ref) => { const m = /^([A-Z]+)/.exec(ref || ''); if (!m) return -1; let n = 0; for (const ch of m[1]) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+
+  async function readXlsxSheets(buf) {
+    const parts = await unzip(buf);
+    const dec = new TextDecoder();
+    const xml = (path) => { const k = Object.keys(parts).find((n) => n.toLowerCase() === path.toLowerCase()); return k ? new DOMParser().parseFromString(dec.decode(parts[k]), 'application/xml') : null; };
+    const shared = [];
+    const ss = xml('xl/sharedStrings.xml');
+    if (ss) byTag(ss, 'si').forEach((si) => shared.push(byTag(si, 't').filter((t) => t.parentNode.localName !== 'rPh').map((t) => t.textContent).join('')));
+    const wb = xml('xl/workbook.xml');
+    if (!wb) throw new Error('This Excel file has no worksheets.');
+    const rels = xml('xl/_rels/workbook.xml.rels');
+    const target = {};
+    if (rels) byTag(rels, 'Relationship').forEach((r) => { target[r.getAttribute('Id')] = r.getAttribute('Target'); });
+    return byTag(wb, 'sheet').map((sh, i) => {
+      const rid = sh.getAttribute('r:id') || sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+      let t = target[rid] || `worksheets/sheet${i + 1}.xml`;
+      t = t.startsWith('/') ? t.slice(1) : 'xl/' + t.replace(/^\.\//, '');
+      const doc = xml(t);
+      const rows = [];
+      if (doc) byTag(doc, 'row').forEach((row) => {
+        const r = Number(row.getAttribute('r')) - 1;
+        const cells = [];
+        byTag(row, 'c').forEach((c, ci) => {
+          const idx = c.getAttribute('r') ? colIndex(c.getAttribute('r')) : ci;
+          const type = c.getAttribute('t');
+          const v = byTag(c, 'v')[0];
+          let val = '';
+          if (type === 's') val = v ? shared[Number(v.textContent)] || '' : '';
+          else if (type === 'inlineStr') val = byTag(c, 't').map((x) => x.textContent).join('');
+          else if (type === 'b') val = v && v.textContent === '1' ? 'TRUE' : v ? 'FALSE' : '';
+          else if (type === 'str' || type === 'e') val = v ? v.textContent : '';
+          else val = v ? numText(v.textContent) : '';
+          if (idx >= 0) cells[idx] = val;
+        });
+        rows[r >= 0 ? r : rows.length] = Array.from(cells, (x) => (x == null ? '' : String(x)));
+      });
+      return { name: sh.getAttribute('name') || `Sheet${i + 1}`, rows: Array.from(rows, (x) => x || []) };
+    });
+  }
+
+  function readCsv(text) {
+    text = text.replace(/^﻿/, '');
+    const first = text.split(/\r?\n/, 1)[0] || '';
+    const delim = [',', ';', '\t'].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return [{ name: 'CSV', rows }];
+  }
+
+  /** Reads a picked .xlsx or .csv file into [{ name, rows: [[text, …], …] }]. Nothing is uploaded. */
+  async function readSheets(file) {
+    if (/\.csv$/i.test(file.name) || file.type === 'text/csv') return readCsv(await file.text());
+    if (/\.xls$/i.test(file.name)) throw new Error('Old .xls files cannot be read. In Excel, use Save As → Excel Workbook (.xlsx).');
+    return readXlsxSheets(await file.arrayBuffer());
+  }
+
+  App.files = { xlsx, pdf, save, share, zip, crc32, readSheets };
 })();

@@ -26,7 +26,8 @@
         <div class="head-actions">
           ${vs.mode === 'notices'
             ? '<button class="btn btn-primary" data-action="new-notice" data-perm="notes">+ New notice</button>'
-            : `<button class="btn" data-action="bulk-clubs" data-perm="clubs">Paste a club list</button>
+            : `<button class="btn" data-action="import-clubs" data-perm="clubs">⤒ Import from Excel</button>
+               <button class="btn" data-action="bulk-clubs" data-perm="clubs">Paste a club list</button>
                <button class="btn btn-primary" data-action="add-club" data-perm="clubs">+ Add club</button>`}
         </div>
       </div>`;
@@ -35,7 +36,7 @@
       return `<section class="view">${head}${emptyState({
         title: 'No clubs yet',
         text: 'Add the Alpha and Omega Leo clubs of the district to start tracking notes, treasurer reports and payments.',
-        actions: `<button class="btn btn-primary" data-action="add-club" data-perm="clubs">+ Add a club</button><button class="btn" data-action="bulk-clubs" data-perm="clubs">Paste a club list</button><button class="btn btn-gold" data-action="load-demo" data-perm="danger">Load sample data</button>`,
+        actions: `<button class="btn btn-primary" data-action="import-clubs" data-perm="clubs">⤒ Import from Excel</button><button class="btn" data-action="add-club" data-perm="clubs">+ Add a club</button><button class="btn" data-action="bulk-clubs" data-perm="clubs">Paste a club list</button><button class="btn btn-gold" data-action="load-demo" data-perm="danger">Load sample data</button>`,
       })}</section>`;
     }
 
@@ -365,6 +366,199 @@
     });
   }
 
+  /* ---------- import from Excel / CSV (the district's club exco sheet) ---------- */
+  const OFFICER_KEYS = ['president', 'presidentPhone', 'treasurer', 'treasurerPhone', 'asstTreasurer', 'asstTreasurerPhone'];
+  const cellText = (v) => {
+    const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+    return /^[-–—_.]+$|^n\/?a$|^nil$|^none$/i.test(s) ? '' : s;
+  };
+  /** "Leo Club of Colombo (Host)", "colombo (Host)" and "COLOMBO HOST" all give the same key. */
+  const clubKey = (name) => String(name || '').toLowerCase().replace(/^leo club (of )?(the )?/, '').replace(/[^a-z0-9]/g, '');
+  const clubName = (raw) => {
+    const s = cellText(raw);
+    if (/^leo club\b/i.test(s)) return s.replace(/^leo club\b( of\b)?/i, (m) => (/of$/i.test(m) ? 'Leo Club of' : 'Leo Club'));
+    return 'Leo Club of ' + s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  /** One style for phone numbers: 077 123 4567. Excel often keeps them as numbers, which drops the leading 0. */
+  function tidyPhone(v) {
+    const s = cellText(v);
+    if (!s) return '';
+    const d = s.replace(/\D/g, '');
+    let local = '';
+    if (s.startsWith('+94') || (!s.startsWith('+') && d.length === 11 && d.startsWith('94'))) local = '0' + d.slice(2);
+    else if (!s.startsWith('+') && d.length === 9 && d[0] !== '0') local = '0' + d;
+    else if (!s.startsWith('+') && d.length === 10 && d[0] === '0') local = d;
+    if (local.length === 10) return `${local.slice(0, 3)} ${local.slice(3, 6)} ${local.slice(6)}`;
+    if (!s.startsWith('+') && !s.startsWith('0') && d.length >= 11 && d.length === s.replace(/[\s-]/g, '').length) return '+' + d;   // foreign number saved without its +
+    return s;
+  }
+  const phoneLooksWrong = (p) => !!p && !p.startsWith('+') && p.replace(/\D/g, '').length !== 10;
+
+  /** Works out what each column holds from its heading. Contact columns belong to the person column before them. */
+  function mapColumns(header) {
+    const map = {}, taken = new Set();
+    let person = null;
+    header.forEach((raw, i) => {
+      const h = cellText(raw).toLowerCase();
+      if (!h) return;
+      const isContact = /contact|phone|mobile|\btel\b|whats ?app|number/.test(h) && !/member/.test(h);
+      const isEmail = /e-?mail/.test(h);
+      const set = (field) => { if (!taken.has(field)) { map[field] = i; taken.add(field); } };
+      if (/club name|^(leo )?club$|^name of (the )?club/.test(h)) { set('name'); person = null; }
+      else if (/^(club )?type$|alpha|omega/.test(h)) set('type');
+      else if (/^zone|zone$/.test(h) && !/director|chair/.test(h)) set('zone');
+      else if (/members|member count|membership$/.test(h) && !/president|treasurer|secretary/.test(h)) set('members');
+      else if (isEmail) { if (/club/.test(h) || !person) set('email'); }
+      else if (isContact) {
+        if (person && person !== 'other') { if (!taken.has(person + 'Phone')) set(person + 'Phone'); }
+        else if (/club/.test(h) || !person) set('phone');
+      } else if (/(assistant|asst\.?) treasurer/.test(h)) { person = taken.has('asstTreasurer') ? 'other' : 'asstTreasurer'; set('asstTreasurer'); }
+      else if (/treasurer/.test(h) && !/past|district|lions/.test(h)) { person = taken.has('treasurer') ? 'other' : 'treasurer'; set('treasurer'); }
+      else if (/president/.test(h) && !/past|vice|lions|district|immediate/.test(h)) { person = taken.has('president') ? 'other' : 'president'; set('president'); }
+      else person = 'other';   // vice presidents, secretaries, advisors… are not kept
+    });
+    if (map.name == null) map.name = 0;
+    return map;
+  }
+
+  /** Reads the first sheet that has club rows. Returns { sheet, cols, clubs, notes } or throws a plain-English error. */
+  function parseClubSheets(sheets) {
+    const isHeader = (row) => row.some((c) => /president/i.test(c)) && row.some((c) => /treasurer/i.test(c));
+    for (const sheet of sheets) {
+      const hi = sheet.rows.findIndex(isHeader);
+      if (hi < 0) continue;
+      const cols = mapColumns(sheet.rows[hi]);
+      const existing = new Map(App.state.clubs.map((c) => [clubKey(c.name), c]));
+      const clubs = [], seen = new Set(), notes = [];
+      let zone = '';
+      sheet.rows.slice(hi + 1).forEach((row) => {
+        const cells = (row || []).map(cellText);
+        const filled = cells.filter(Boolean);
+        if (!filled.length || isHeader(cells)) return;
+        const first = cells[cols.name] || filled[0];
+        if (/^zone\b/i.test(first) && filled.length <= 2) { zone = first.replace(/^zone\s*/i, 'Zone '); return; }
+        if (/^region\b/i.test(first) && filled.length <= 2) return;
+        const raw = cells[cols.name];
+        if (!raw || /^(leo )?club( name)?$/i.test(raw) || /e-?mail address|contact number/i.test(cells.join(' '))) return;
+        const name = clubName(raw), key = clubKey(name);
+        if (!key) return;
+        if (seen.has(key)) { notes.push(`${name} appears twice — only the first row is used.`); return; }
+        seen.add(key);
+        const get = (f) => (cols[f] != null ? cells[cols[f]] || '' : '');
+        const typeText = get('type').toLowerCase();
+        const match = existing.get(key);
+        const guessed = !/alpha|omega/.test(typeText);
+        const c = {
+          name: match ? match.name : name, matchId: match ? match.id : null,
+          type: /alpha/.test(typeText) ? 'alpha' : /omega/.test(typeText) ? 'omega'
+            : match ? match.type : /college|vidyala|school|balika|vidyalaya/i.test(name) ? 'alpha' : 'omega',
+          typeGuessed: guessed && !match,
+          zone: get('zone') || zone,
+          email: get('email'), phone: tidyPhone(get('phone')),
+          members: parseInt(get('members'), 10) || 0,
+          president: get('president'), presidentPhone: tidyPhone(get('presidentPhone')),
+          treasurer: get('treasurer'), treasurerPhone: tidyPhone(get('treasurerPhone')),
+          asstTreasurer: get('asstTreasurer'), asstTreasurerPhone: tidyPhone(get('asstTreasurerPhone')),
+        };
+        [['presidentPhone', 'president'], ['treasurerPhone', 'treasurer'], ['asstTreasurerPhone', 'assistant treasurer']].forEach(([k, who]) => {
+          if (phoneLooksWrong(c[k])) notes.push(`${c.name}: the ${who}'s number “${c[k]}” looks incomplete.`);
+        });
+        if (cols.treasurer != null && !c.treasurer) notes.push(`${c.name}: no club treasurer in the sheet.`);
+        clubs.push(c);
+      });
+      if (clubs.length) return { sheet: sheet.name, cols, clubs, notes };
+    }
+    throw new Error('No club rows found. The sheet needs a heading row with columns such as Club President and Club Treasurer, then one row per club.');
+  }
+
+  function importForm() {
+    let res = null, err = '', busy = false;
+    const ctrl = App.ui.open({
+      title: 'Import clubs from Excel', size: 'lg',
+      sub: () => (res ? `${res.clubs.length} club${res.clubs.length === 1 ? '' : 's'} found in “${esc(res.sheet)}”` : 'The club exco sheet: clubs with their president, treasurer and assistant treasurer'),
+      render: () => {
+        if (!res) {
+          return `<div class="stack" style="gap:14px">
+            <p style="margin:0">Choose the district's club exco sheet (<b>.xlsx</b> or <b>.csv</b>): one row per club, with headings such as
+              <b>Club President</b>, <b>Club Treasurer</b>, <b>Club Assistant Treasurer</b> and a <b>Contact Number</b> after each.
+              Rows like “Zone A1” above a group of clubs set their zone. Other office bearers in the sheet are skipped.</p>
+            <div><label class="btn btn-primary file-btn">${busy ? 'Reading…' : '⤒ Choose Excel file'}<input type="file" id="impFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" ${busy ? 'disabled' : ''}></label></div>
+            ${err ? `<div class="callout danger">${esc(err)}</div>` : ''}
+            <small class="muted">You see everything before it is saved. Clubs already in the portal are updated with the new officers, never duplicated, and nothing is deleted.</small>
+          </div>`;
+        }
+        const nNew = res.clubs.filter((c) => !c.matchId).length, nUpd = res.clubs.length - nNew;
+        const person = (n, p) => (n ? `${esc(n)}${p ? `<br><small class="muted">${esc(p)}</small>` : ''}` : '<span class="muted">—</span>');
+        const guessed = res.clubs.some((c) => c.typeGuessed);
+        const notes = [
+          guessed ? 'Alpha / Omega is not in the sheet: clubs with “College” or “Vidyalaya” in the name are set to <b>Alpha</b>, the rest to <b>Omega</b>. Change any that are wrong in the Type column.' : '',
+          ...res.notes.map(esc),
+        ].filter(Boolean);
+        return `<div class="stack" style="gap:12px">
+          <div class="callout"><span><b>${nNew}</b> new club${nNew === 1 ? '' : 's'}${nUpd ? ` and <b>${nUpd}</b> to update with the new officers` : ''}. Check the list, then press <b>Import</b>.</span></div>
+          ${notes.length ? `<ul class="imp-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
+          <div class="table-wrap imp-wrap"><table class="table imp-table">
+            <thead><tr><th>Club</th><th>Type</th><th>Zone</th><th>President</th><th>Treasurer</th><th>Asst. treasurer</th></tr></thead>
+            <tbody>${res.clubs.map((c, i) => `<tr>
+              <td><b>${esc(c.name)}</b><br><small class="muted">${c.matchId ? 'already in the portal · update' : 'new'}${c.email ? ' · ' + esc(c.email) : ''}</small></td>
+              <td><select class="input imp-type" data-i="${i}" aria-label="Type of ${esc(c.name)}"><option value="omega" ${c.type === 'omega' ? 'selected' : ''}>Ω Omega</option><option value="alpha" ${c.type === 'alpha' ? 'selected' : ''}>α Alpha</option></select></td>
+              <td>${esc(c.zone) || '<span class="muted">—</span>'}</td>
+              <td>${person(c.president, c.presidentPhone)}</td>
+              <td>${person(c.treasurer, c.treasurerPhone)}</td>
+              <td>${person(c.asstTreasurer, c.asstTreasurerPhone)}</td></tr>`).join('')}</tbody>
+          </table></div>
+        </div>`;
+      },
+      footer: () => (res
+        ? `<button class="btn" id="impAgain">Choose another file</button><button class="btn" data-close>Cancel</button><button class="btn btn-primary" id="impGo">Import ${res.clubs.length} club${res.clubs.length === 1 ? '' : 's'}</button>`
+        : '<button class="btn" data-close>Cancel</button>'),
+      onMount: (el, me) => {
+        const file = el.querySelector('#impFile');
+        file && file.addEventListener('change', async () => {
+          const f = file.files && file.files[0];
+          if (!f) return;
+          busy = true; err = ''; me.update();
+          try { res = parseClubSheets(await App.files.readSheets(f)); }
+          catch (e) { err = (e && e.message) || 'This file could not be read.'; }
+          busy = false; me.update();
+        });
+        el.querySelectorAll('.imp-type').forEach((s) => s.addEventListener('change', () => { res.clubs[Number(s.dataset.i)].type = s.value === 'alpha' ? 'alpha' : 'omega'; }));
+        const again = el.querySelector('#impAgain');
+        again && again.addEventListener('click', () => { res = null; err = ''; me.update(); });
+        const go = el.querySelector('#impGo');
+        go && go.addEventListener('click', () => {
+          const has = (f) => res.cols[f] != null;
+          let added = 0, updated = 0;
+          App.commit((s) => {
+            res.clubs.forEach((c) => {
+              const officers = {};
+              OFFICER_KEYS.forEach((k) => { if (has(k)) officers[k] = c[k]; });
+              const ex = c.matchId && s.clubs.find((x) => x.id === c.matchId);
+              if (ex) {
+                // this year's officers replace last year's; logo, members and notes stay
+                Object.assign(ex, officers, { type: c.type });
+                if (c.email) ex.email = c.email;
+                if (c.phone) ex.phone = c.phone;
+                if (c.zone && !ex.zone) ex.zone = c.zone;
+                if (c.members) ex.members = c.members;
+                updated++;
+              } else {
+                s.clubs.push({
+                  id: App.uid('club'), createdAt: Date.now(), name: c.name, type: c.type, zone: c.zone, members: c.members,
+                  email: c.email, phone: c.phone, logo: '',
+                  president: '', presidentPhone: '', treasurer: '', treasurerPhone: '', asstTreasurer: '', asstTreasurerPhone: '', ...officers,
+                });
+                added++;
+              }
+            });
+          });
+          ctrl.close();
+          App.ui.toast([added && `${added} club${added === 1 ? '' : 's'} added`, updated && `${updated} updated`].filter(Boolean).join(', ') || 'Nothing to import');
+        });
+      },
+    });
+  }
+
   /* ---------- note edit ---------- */
   function editNote(noteId) {
     const n = App.state.notes.find((x) => x.id === noteId);
@@ -399,6 +593,7 @@
     'add-club': () => clubForm(),
     'edit-club': (el) => clubForm(el.dataset.id),
     'bulk-clubs': () => bulkForm(),
+    'import-clubs': () => importForm(),
     'clubs-mode': (el) => { vs.mode = el.dataset.mode; vs.q = ''; App.refresh(); },
     'delete-club': async (el) => {
       const c = App.clubById(el.dataset.id);

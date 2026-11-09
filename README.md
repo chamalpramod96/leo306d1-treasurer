@@ -5,7 +5,7 @@ A web app for the Leo District 306 D1 District Treasurer, themed from the distri
 ## What it does
 
 - **Loading screen and header** built around the district emblem, with the motto "Values Lead Purpose".
-- **Clubs & Notes**: the club register, split into **Omega** and **Alpha** clubs. It has three tabs:
+- **Clubs & Notes**: the club register, split into **Omega** and **Alpha** clubs. **Import from Excel** reads the district's club exco sheet (.xlsx or .csv): each club with its zone, email, president, treasurer and assistant treasurer and their phone numbers. It shows a preview first. Importing a new year's sheet updates the officers of clubs already in the portal instead of adding them twice, and never deletes anything. It has three tabs:
   - **Clubs**: one card per club, with its logo.
   - **Notes & reminders**: every note and reminder in the district.
   - **Notices**: district notices.

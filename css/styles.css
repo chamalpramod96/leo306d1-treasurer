@@ -1302,3 +1302,10 @@ body.locked .site-header, body.locked .app, body.locked .site-footer, body.locke
 .auth-connecting { text-align: center; padding: 14px 0 6px; }
 .auth-connecting .spin { width: 30px; height: 30px; border-width: 3px; color: var(--maroon-700); margin-bottom: 14px; }
 .auth-connecting .auth-p { margin-bottom: 0; }
+
+/* ---------- import clubs from Excel ---------- */
+.imp-notes { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-2, #5a4a44); display: grid; gap: 4px; max-height: 140px; overflow: auto; }
+.imp-wrap { max-height: 52vh; overflow: auto; }
+.imp-table td { font-size: 13px; vertical-align: top; }
+.imp-table td small { font-size: 12px; }
+.imp-table .imp-type { min-width: 108px; padding: 6px 8px; font-size: 13px; }

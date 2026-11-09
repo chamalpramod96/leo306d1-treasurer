@@ -10,7 +10,7 @@
 
   /** Permission needed for each data-action (checked before the handler runs). */
   const ACTION_PERMS = {
-    'add-club': 'clubs', 'edit-club': 'clubs', 'bulk-clubs': 'clubs', 'delete-club': 'clubs',
+    'add-club': 'clubs', 'edit-club': 'clubs', 'bulk-clubs': 'clubs', 'import-clubs': 'clubs', 'delete-club': 'clubs',
     'new-payment': 'payments', 'edit-payment': 'payments', 'delete-payment': 'payments',
     'new-head': 'heads', 'edit-head': 'heads', 'delete-head': 'heads',
     'export-reports': 'export', 'export-log': 'export', 'export-matrix': 'export',
